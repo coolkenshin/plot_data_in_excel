@@ -10,12 +10,13 @@ from optparse import OptionParser
 import sys
 import re
 import os
-import datetime
-import pandas as pd
-import subprocess
 # import xlsxwriter
-#import numpy as np
-#import multiprocessing
+import pandas as pd
+import numpy as np
+import datetime
+import multiprocessing
+import subprocess
+
 
 """
 Global variables:
@@ -158,12 +159,22 @@ def d_print(var, level):
         if(level >= g_debug_level):
             print(var)
 
+
+# def is_date(date_str):
+#     pattern = re.compile("\d\d\d\d-\d+-\d+")
+#     if pattern.match(date_str):
+#         return True
+#     else:
+#         return False
+
+
 def get_offset(chart_sheet_name):
     if chart_sheet_name == SN_IO_PROFILE:
         offset = g_io_profile_chart_offset
     elif chart_sheet_name == SN_OS_LOAD:
         offset = g_os_load_chart_offset
     return offset
+
 
 def increase_offset(chart_sheet_name, offset_step=40):
     global g_io_profile_chart_offset
@@ -173,13 +184,62 @@ def increase_offset(chart_sheet_name, offset_step=40):
     elif chart_sheet_name == SN_OS_LOAD:
         g_os_load_chart_offset += offset_step
 
+def sort_df_by_date_time(df):
+    """
+    Convert it to datetime type and sort and then restore to string type, otherwise excel chart
+    is totally messing up
+    """
+    col0 = 'date_time'
+    df[col0] = pd.to_datetime(df[col0], format='%Y-%m-%d %H:%M:%S')
+    df = df.sort_values(by=df.columns[0])
+    df[col0] = df[col0].dt.strftime('%Y-%m-%d %H:%M:%S')
+    df = df.reset_index(drop=True)
+    return df
+
+# def get_multi_process_count():
+#     count = multiprocessing.cpu_count()
+#     if count > 8:
+#         count = 8
+#     return count
+
 def init_chart_worksheets():
     workbook = g_excel_writer.book
     for sn in SHEET_NAME_LIST:
         workbook.add_worksheet(sn)
 
+def read_irregular_file(fn):
+    """ A tricky workaround here to read irregular file """
+    """
+                        1            2      3      4      5
+        0       2017-11-2     18:47:56  10139  7255    write
+        1            2884        read    NaN    NaN    NaN
+    """
+    df = pd.read_csv(fn, delim_whitespace=True,
+                     skiprows=1, low_memory=False)
+    first_line = df.columns.tolist()
+    df.loc[-1] = df.columns.tolist()
+    df.index = df.index + 1
+    df = df.sort_index()
+    df.columns = [0, 1, 2, 3, 4]
+    df.replace(['-', '-.1', '-.2', '1.1', '2.1', '5706.1', '1239.1', '946.1', '38686.1', '343.1', '584.1', '181.1', '943.1', '148.1', '962.1', '6759.1', '995.1', '1081.1', '4002.1', '874.1', '1772.1'],
+               [0, 0, 0, 1, 2, 5706, 1239, 946, 38686, 343, 584, 181, 943, 148, 962, 6759, 995, 1081, 4002, 874, 1772], inplace=True)
+    return df
+
+def compute_average_by_date_group(df, column_name_dict):
+    df['date_time'] = df['date_time'].str[:-6]
+    df=df.groupby('date_time', as_index=True).mean()
+    df.reset_index(inplace=True)
+    for key in column_name_dict:
+        if key == 'date_time':
+            continue
+        else:
+            df[key] = df[key].astype(int)
+    d_print(df, DBG_LEVEL4)
+    return df
+
 def read_df_from_csv_with_col_list(fn_csv, column_name_list):
     df = pd.read_csv(fn_csv, header=None, names=column_name_list)
+    print(df)
     return df
 
 def read_df_from_csv_with_col_dict(fn_csv, column_name_dict):
@@ -220,6 +280,26 @@ def get_file_list_in_dir(dir_name, file_name):
         if file_name in files:
             file_name_list.append(os.path.join(root, file_name))
     return file_name_list
+
+
+# def get_raw_df_from_file_list(file_name_list, column_name_dict):
+#     df_cat = pd.DataFrame()
+#     index = 0
+#     for fn in file_name_list:
+# #         if g_debug:
+# #             #tmp_fn = '../rawdata2/cfeis01nas83_analytics/cfeis01nas832017-11-09_21_07_07_UTC/nfs4.ops_op.tx'
+# #             tmp_fn = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas11_analytics/cfeis01nas112017-11-03_18_49_03_UTC/nfs3.ops_op.txt'
+# #             if fn != tmp_fn:
+# #                 continue
+# 
+#         df = read_irregular_file(fn)
+#         df_cat = df_cat.append(df)
+#         d_print(fn, DBG_LEVEL3)
+#         d_print(df, DBG_LEVEL1)
+# 
+#     d_print(df_cat, DBG_LEVEL2)
+#     return df_cat
+
 
 def draw_generic_combined_chart(df, chart_sheet_name, data_sheet_name, chart_title, chart_y_axis='IOPS', x_scale=2.5, y_scale=2.5):
     df.to_excel(g_excel_writer, data_sheet_name)
@@ -318,6 +398,263 @@ def draw_generic_line_chart(df, chart_sheet_name, data_sheet_name, chart_title, 
     increase_offset(chart_sheet_name)
     workbook.set_size(1920, 1280)
 
+
+def analyze_generic_file_list(file_name_list, column_name_list, interval=1, skiprows=1, header=None):
+    """ To handle column_name_list = ['date_time', 'value', 'max', 'min', 'mean'] """
+    df_cat = pd.DataFrame(columns=column_name_list)
+    index = 0
+    for fn in file_name_list:
+        df = pd.read_csv(fn, delim_whitespace=True,
+                         skiprows=skiprows, header=header)
+        #df.columns = column_name_list
+        for i in range(0, int(len(df) / interval)):
+            s = df.iloc[i * interval:(i + 1) * interval][2]
+            s_max = s.max()
+            s_min = s.min()
+            s_mean = int(s.mean())
+            s_date_time = df.iloc[i * interval][0] + \
+                ' ' + df.iloc[i * interval][1]
+            s_value = df.iloc[i * interval][2]
+            df_cat.loc[index] = [s_date_time, s_value, s_max, s_min, s_mean]
+            index += 1
+
+    df_cat = sort_df_by_date_time(df_cat)
+    return df_cat
+
+# def analyze_nfs_generic_breakdown_file_list_mp(raw_df, column_name_dict, non_na_index_list):
+#     df_slice = pd.DataFrame(columns=column_name_dict.keys())
+#     index = 0
+#     while index < len(non_na_index_list)-1:
+#         elem = non_na_index_list[index]
+#         next_elem = non_na_index_list[index + 1]
+#         row_dict = column_name_dict.copy()
+#         row_dict['date_time'] = raw_df.iloc[elem, 0] + \
+#             ' ' + raw_df.iloc[elem, 1]
+#         row_dict['total_ops_num'] = int(raw_df.iloc[elem, 2])
+# 
+#         if row_dict['total_ops_num'] != 0 and elem != (next_elem - 1):
+#             row_dict[str(raw_df.iloc[elem, 4])] = int(raw_df.iloc[elem, 3])
+#             row_df_extra = raw_df.loc[elem + 1:next_elem - 1, [1, 0]]
+#             row_dict_extra = row_df_extra.set_index(1)[0].to_dict()
+#             row_dict.update(row_dict_extra)
+#         row_df = pd.DataFrame.from_dict(row_dict, 'index').T
+# 
+#         df_slice = df_slice.append(row_df, ignore_index=True)
+#         index += 1
+#     d_print(df_slice, DBG_LEVEL3)
+#     return df_slice.values.tolist()
+# 
+# def analyze_nfs_generic_breakdown_file_list_collect(slice_result):
+#     global g_nfs_breakdown_second_results
+#     g_nfs_breakdown_second_results.extend(slice_result)
+# 
+# def analyze_nfs_generic_breakdown_file_list(file_name_list, column_name_dict, interval=3600):
+#     df_all_seconds = pd.DataFrame(columns=column_name_dict.keys())
+#     raw_df = get_raw_df_from_file_list(file_name_list, column_name_dict)
+#     non_na_index_list = raw_df.dropna().index.tolist()
+# 
+#     global g_nfs_breakdown_second_results
+#     g_nfs_breakdown_second_results = []
+#     pool = multiprocessing.Pool(processes=get_multi_process_count())
+# 
+#     slices = int(len(non_na_index_list) / interval)
+#     slices_last = int(len(non_na_index_list) % interval)
+#     for i in range(slices):
+#         """ (i+1)*interval+1 means to also give the last row number of raw df """ 
+#         non_na_index_list_slice = non_na_index_list[i*interval : (i+1)*interval+1]
+#         pool.apply_async(analyze_nfs_generic_breakdown_file_list_mp,
+#                          args=(raw_df, column_name_dict, non_na_index_list_slice),
+#                          callback=analyze_nfs_generic_breakdown_file_list_collect)
+#     if slices_last != 0:
+#         non_na_index_list_slice = non_na_index_list[(-1) * slices_last:]
+#         """ Special handing here to append the last row number of raw df """
+#         non_na_index_list_slice.append(len(raw_df))
+#         pool.apply_async(analyze_nfs_generic_breakdown_file_list_mp,
+#                          args=(raw_df, column_name_dict, non_na_index_list_slice),
+#                          callback=analyze_nfs_generic_breakdown_file_list_collect)
+#     pool.close()
+#     pool.join()
+#     df_all_seconds = pd.DataFrame(g_nfs_breakdown_second_results)
+#     df_all_seconds.columns = column_name_dict.keys()
+# 
+#     for key in column_name_dict:
+#         if key == 'date_time':
+#             continue
+#         else:
+#             df_all_seconds[key] = df_all_seconds[key].astype(int)
+# 
+#     df_all_seconds = sort_df_by_date_time(df_all_seconds)
+#     d_print(df_all_seconds.tail(1), DBG_LEVEL3)
+# #     df_all_seconds.to_csv('nfs3_ops', sep='\t')
+#     return df_all_seconds
+
+
+"""
+How to compute hourly average? Ignore this one, just choose snapshot for each interval second
+DATE/TIME               OPS/SEC    OPS/SEC BREAKDOWN
+2017-11-2 19:00:31           54          3 1000
+                                         1 950
+                                         1 900
+                                         1 700
+                                         2 600
+                                         2 550
+                                        12 500
+                                         5 450
+                                         1 400
+                                         5 250
+                                         1 200
+                                        17 50
+                                         3 0
+"""
+# def analyze_nfs_latency_breakdown_file_list(file_name_list, column_name_dict, interval=3600):
+#     df_cat = pd.DataFrame(columns=column_name_dict.keys())
+#     index = 0
+#     for fn in file_name_list:
+#         d_print(fn, DBG_LEVEL3)
+#         df = read_irregular_file(fn)
+# 
+#         non_na_index_list = df.dropna().index.tolist()
+#         dict_len = len(column_name_dict)
+#         df_interval = pd.DataFrame(columns=column_name_dict.keys())
+#         df_index = 0
+#         """ Only deal with data from interval seconds, otherwise too time-consuming """
+#         index = 0
+#         while index < len(non_na_index_list):
+#             elem = non_na_index_list[index]
+#             next_elem = non_na_index_list[index + 1]
+#             row_list = [0] * dict_len
+#             row_list[0] = df.iloc[elem, 0] + ' ' + df.iloc[elem, 1]
+#             val = df.iloc[elem, 3]
+#             if val != 0:
+#                 row_list[1] = val
+#                 """ Unit: Millisecond """
+#                 row_list[2] = float((int(df.iloc[elem, 4])) / 1000.0)
+#             df_interval.loc[df_index] = row_list
+#             df_index += 1
+#             index += interval
+#         df_cat = df_cat.append(df_interval)
+# 
+#     for key in column_name_dict:
+#         if key == 'date_time':
+#             continue
+#         elif key == 'latency_in_sec':
+#             df_cat[key] = df_cat[key].astype(float)
+#         else:
+#             df_cat[key] = df_cat[key].astype(int)
+# 
+#     df_cat = sort_df_by_date_time(df_cat)
+#     return df_cat
+
+
+# def analyze_disk_io_genric_breakdown_file_list(file_name_list, column_name_dict, interval=3600):
+#     df_cat = pd.DataFrame(columns=column_name_dict.keys())
+#     index = 0
+#     for fn in file_name_list:
+#         df = read_irregular_file(fn)
+#         d_print(df, DBG_LEVEL3)
+#         non_na_index_list = df.dropna().index.tolist()
+#         dict_len = len(column_name_dict)
+#         df_interval = pd.DataFrame(columns=column_name_dict.keys())
+#         df_index = 0
+#         """ Only deal with data from interval seconds, otherwise too time-consuming """
+#         index = 0
+#         while index < len(non_na_index_list):
+#             elem = non_na_index_list[index]
+#             """
+#             DISK_IO_OPS_RW_STAT_NAME_DICT = {
+#                 "date_time": 0,
+#                 "total_ops_per_sec": 1,
+#                 "write": 2,
+#                 "read": 3,
+#             }
+#             ATTENTION: write and read is not in fixed sequence,
+#                        sometimes only have one, either read or write
+#             """
+#             next_elem = non_na_index_list[index + 1]
+#             row_list = [0] * dict_len
+#             row_list[0] = df.iloc[elem, 0] + ' ' + df.iloc[elem, 1]
+#             row_list[1] = df.iloc[elem, 2]
+# 
+#             ops = df.iloc[elem, 4]
+#             ops_index = column_name_dict[ops]
+#             row_list[ops_index] = df.iloc[elem, 3]
+# 
+#             if (next_elem - elem) == 2:
+#                 ops = df.iloc[elem + 1, 1]
+#                 ops_index = column_name_dict[ops]
+#                 row_list[ops_index] = df.iloc[elem + 1, 0]
+# 
+#             df_interval.loc[df_index] = row_list
+#             df_index += 1
+#             index += interval
+#         df_cat = df_cat.append(df_interval)
+# 
+#     for key in column_name_dict:
+#         if key == 'date_time':
+#             continue
+#         else:
+#             df_cat[key] = df_cat[key].astype(int)
+# 
+#     df_cat = sort_df_by_date_time(df_cat)
+# #     print(df_cat)
+#     return df_cat
+# 
+# 
+# # def analyze_disk_io_size_breakdown_file_list(file_name_list, interval=3600):
+# #     def get_dict_index(x):
+# #         x = int(x / 1024)
+# #         count = 0
+# #         while x >= 1.0:
+# #             x = x / 2
+# #             count += 1
+# #         count += col_dict['io_size <1k']
+# #         if count >= len(col_dict):
+# #             count = len(col_dict) - 1
+# #         return count
+# # 
+# #     col_list = ['date_time', 'total_iops', 'io_size <1k', 'io_size >=1k', 'io_size >=2k', 'io_size >=4k',
+# #                 'io_size >=8k', 'io_size >=16k', 'io_size >=32k', 'io_size >=64k', 'io_size >=128k', 'io_size >=256k', 'io_size >=512k']
+# #     col_dict = dict(zip(col_list, range(0, len(col_list))))
+# # 
+# #     df_cat = pd.DataFrame(columns=col_dict.keys())
+# # #     file_num = 0
+# #     for fn in file_name_list:
+# #         df = read_irregular_file(fn)
+# # 
+# #         non_na_index_list = df.dropna().index.tolist()
+# #         dict_len = len(col_dict)
+# #         df_interval = pd.DataFrame(columns=col_dict.keys())
+# #         df_index = 0
+# #         """ Only deal with data from interval seconds, otherwise too time-consuming """
+# #         index = 0
+# #         while index < len(non_na_index_list):
+# #             elem = non_na_index_list[index]
+# #             next_elem = non_na_index_list[index + 1]
+# # 
+# #             row_list = [0] * dict_len
+# #             row_list[0] = df.iloc[elem, 0] + ' ' + df.iloc[elem, 1]
+# #             row_list[1] = int(df.iloc[elem, 2])
+# #             if row_list[1] != 0:
+# #                 col_index = get_dict_index(int(df.iloc[elem, 4]))
+# #                 row_list[col_index] += int(df.iloc[elem, 3])
+# # 
+# #                 for j in range(elem + 1, next_elem):
+# #                     col_index = get_dict_index(int(df.iloc[j, 1]))
+# #                     row_list[col_index] += int(df.iloc[j, 0])
+# #             df_interval.loc[df_index] = row_list
+# #             df_index += 1
+# #             index += interval
+# #         df_cat = df_cat.append(df_interval)
+# # 
+# #     for key in col_dict:
+# #         if key == 'date_time':
+# #             continue
+# #         else:
+# #             df_cat[key] = df_cat[key].astype(int)
+# # 
+# #     df_cat = sort_df_by_date_time(df_cat)
+# #     return df_cat
+
 def plot_nfs3_ops(fn):
     column_name_list = ['date_time', 'iops_mean', 'max', 'min']
     script = 'generic_mean_max_min.sh'
@@ -367,16 +704,12 @@ def plot_nfs3_ops_latency(fn):
                             'Hourly NFSv3 OPS Breakdown by Latency', 'IOPS')
 
 def plot_nfs4_ops(fn):
-    column_name_list = ['date_time', 'iops_mean', 'max', 'min']
-    script = 'generic_mean_max_min.sh'
-    fn_csv = g_one_storage_data_dir_name + '/' + fn + '.csv'
-    if not os.path.isfile(fn_csv):
-        call_shell(script, g_one_storage_data_dir_name, fn)
-
-    df = read_df_from_csv_with_col_list(fn_csv, column_name_list)
+    file_name_list = get_file_list_in_dir(g_one_storage_data_dir_name, fn)
+    column_name_list = ['date_time', 'iops', 'max', 'min', 'mean']
+    df = analyze_generic_file_list(file_name_list, column_name_list)
     draw_generic_line_chart(
         df, SN_IO_PROFILE, 'NFSv4_IOPS', 'Hourly NFSv4 IOPS')
-    
+
 def plot_nfs4_ops_op(fn):
     column_name_dict = NFSV4_OPS_STAT_NAME_DICT
     script = 'nfsv4_ops_op_bd.sh'
@@ -437,38 +770,25 @@ def plot_io_bytes(fn):
                                 'Hourly Disk KB/SEC Breakdown by Read/Write', 'DISK KB/SEC')
 
 def plot_nic_kilobytes(fn):
-    column_name_list = ['date_time', 'nic_kb_per_sec_mean', 'max', 'min']
-    script = 'generic_mean_max_min.sh'
-    fn_csv = g_one_storage_data_dir_name + '/' + fn + '.csv'
-    if not os.path.isfile(fn_csv):
-        call_shell(script, g_one_storage_data_dir_name, fn)
-
-    df = read_df_from_csv_with_col_list(fn_csv, column_name_list)
+    file_name_list = get_file_list_in_dir(g_one_storage_data_dir_name, fn)
+    column_name_list = ['date_time', 'nic_kb_per_sec', 'max', 'min', 'mean']
+    df = analyze_generic_file_list(file_name_list, column_name_list)
     draw_generic_line_chart(
         df, SN_IO_PROFILE, 'NIC_KB_PER_SEC', 'Hourly NIC KB/SEC', 'NIC KB/Sec')
-    
-def plot_arc_hitratio(fn):
-    column_name_list = ['date_time', 'arc_hit_ratio_mean', 'max', 'min']
-    script = 'generic_mean_max_min.sh'
-    fn_csv = g_one_storage_data_dir_name + '/' + fn + '.csv'
-    if not os.path.isfile(fn_csv):
-        call_shell(script, g_one_storage_data_dir_name, fn)
 
-    df = read_df_from_csv_with_col_list(fn_csv, column_name_list)
+def plot_arc_hitratio(fn):
+    file_name_list = get_file_list_in_dir(g_one_storage_data_dir_name, fn)
+    column_name_list = ['date_time', 'arc_hit_ratio', 'max', 'min', 'mean']
+    df = analyze_generic_file_list(file_name_list, column_name_list)
     draw_generic_line_chart(df, SN_OS_LOAD, 'ZFS_ARC_HIT_RATIO',
                             'Hourly ZFS ARC HIT RATIO', 'ARC Hit Ratio')
 
 def plot_cpu_utilization(fn):
-    column_name_list = ['date_time', 'cpu_util_mean', 'max', 'min']
-    script = 'generic_mean_max_min.sh'
-    fn_csv = g_one_storage_data_dir_name + '/' + fn + '.csv'
-    if not os.path.isfile(fn_csv):
-        call_shell(script, g_one_storage_data_dir_name, fn)
-
-    df = read_df_from_csv_with_col_list(fn_csv, column_name_list)
+    file_name_list = get_file_list_in_dir(g_one_storage_data_dir_name, fn)
+    column_name_list = ['date_time', 'cpu_utilization', 'max', 'min', 'mean']
+    df = analyze_generic_file_list(file_name_list, column_name_list)
     draw_generic_line_chart(df, SN_OS_LOAD, 'CPU_UTIL',
                             'Hourly CPU UTILIZATION', 'CPU Utilization')
-    
 
 def plot_excel_all_charts():
     dig_file_name_list = [
@@ -487,7 +807,8 @@ def plot_excel_all_charts():
         'cpu_utilization.txt'
     ]
     plot_func_name_list = [
-        plot_nfs3_ops,
+        #plot_nfs3_ops,
+        plot_nfs3_ops2,
         plot_nfs3_ops_op,
         plot_nfs3_ops_size,
         plot_nfs3_ops_latency,
@@ -502,22 +823,21 @@ def plot_excel_all_charts():
         plot_cpu_utilization
     ]
     fname_2_func = dict(zip(dig_file_name_list, plot_func_name_list))
-    all_start_time = datetime.datetime.now().replace(microsecond=0)
-    for i, fn in enumerate(fname_2_func):
-        print("=== Step {} ===: {}".format(i + 1, fn))
+    for i, fname in enumerate(fname_2_func):
+        if fname != 'nfs3.ops.txt':
+            continue
+        print("=== Step {} ===: {}".format(i + 1, fname))
         start_time = datetime.datetime.now().replace(microsecond=0)
-        func = fname_2_func[fn]
-        func(fn)
+        func = fname_2_func[fname]
+        func(fname)
         end_time = datetime.datetime.now().replace(microsecond=0)
         print("Time used: {}".format(end_time - start_time))
-    all_end_time = datetime.datetime.now().replace(microsecond=0)
-    print("Finished - All Time Used: {}".format(all_end_time - all_start_time))
 
 if __name__ == "__main__":
     options, args = parse_opts(sys.argv[1:])
 
     g_one_storage_data_dir_name = options.opcDataDir
-    #g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas83.analytics'
+    g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas83.analytics'
     g_excel_file_name = os.path.basename(
         g_one_storage_data_dir_name).split('_')[0] + ".xlsx"
     """ Create a Pandas Excel g_excel_writer using XlsxWriter as the engine """
@@ -531,6 +851,10 @@ if __name__ == "__main__":
 #     options, args = parse_opts(sys.argv[1:])
 # 
 #     g_one_storage_data_dir_name = options.opcDataDir
+#     #g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas11_analytics'
+#     #g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas103.analytics'
+#     #g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas84.analytics'
+#     #g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas104.analytics'
 #     g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas83.analytics'
 #     g_excel_file_name = g_one_storage_data_dir_name + '/' + os.path.basename(
 #         g_one_storage_data_dir_name).split('.')[0] + ".xlsx"
