@@ -517,7 +517,6 @@ if __name__ == "__main__":
     options, args = parse_opts(sys.argv[1:])
 
     g_one_storage_data_dir_name = options.opcDataDir
-    #g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas83.analytics'
     g_excel_file_name = os.path.basename(
         g_one_storage_data_dir_name).split('_')[0] + ".xlsx"
     """ Create a Pandas Excel g_excel_writer using XlsxWriter as the engine """
@@ -525,31 +524,3 @@ if __name__ == "__main__":
     init_chart_worksheets()
     plot_excel_all_charts()
     g_excel_writer.book.close()
-
-
-# if __name__ == "__main__":
-#     options, args = parse_opts(sys.argv[1:])
-# 
-#     g_one_storage_data_dir_name = options.opcDataDir
-#     g_one_storage_data_dir_name = '/Users/mmyu/Tools/eclipse463/workspace/plot_data_in_excel/rawdata2/cfeis01nas83.analytics'
-#     g_excel_file_name = g_one_storage_data_dir_name + '/' + os.path.basename(
-#         g_one_storage_data_dir_name).split('.')[0] + ".xlsx"
-#     """ Create a Pandas Excel g_excel_writer using XlsxWriter as the engine """
-#     g_excel_writer = pd.ExcelWriter(g_excel_file_name, engine='xlsxwriter')
-#     print(g_excel_file_name)
-#     init_chart_worksheets()
-# 
-#     #plot_nfs3_ops_latency('nfs3.ops_latency.txt')
-#     #plot_nfs4_ops_op('nfs4.ops_op.txt')
-#     #plot_io_ops_op('io.ops_op.txt')
-#     #plot_nfs3_ops_op2('nfs3.ops_op.txt')
-#     #plot_nfs3_ops_size2('nfs3.ops_size.txt')
-#     #plot_nfs4_ops_latency('nfs4.ops_latency.txt')
-#     #plot_nfs4_ops_op('nfs4.ops_op.txt')
-#     start_time = datetime.datetime.now().replace(microsecond=0)
-#     plot_io_ops_op('io.ops_op.txt')
-#     plot_io_bytes('io.bytes.txt')
-#     end_time = datetime.datetime.now().replace(microsecond=0)
-#     print("Time used: {}".format(end_time - start_time))
-# 
-#     g_excel_writer.book.close()
