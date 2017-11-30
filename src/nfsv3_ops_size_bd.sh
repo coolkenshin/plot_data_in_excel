@@ -91,7 +91,7 @@ NF == 5 {
         ops["date_time"] = cur_hour
         ops["total_ops_num"] += $3
         idx = get_dict_index(int($5))
-        ops[idx] = $4
+        ops[idx] += $4
         count += 1  
     }
 

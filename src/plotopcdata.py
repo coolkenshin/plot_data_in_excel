@@ -13,6 +13,8 @@ import os
 import datetime
 import pandas as pd
 import subprocess
+from dateutil import parser
+
 # import xlsxwriter
 #import numpy as np
 #import multiprocessing
@@ -23,6 +25,7 @@ Global variables:
 g_summary_file_name = ""
 g_one_storage_data_dir_name = ""
 g_excel_file_name = ""
+g_storage_name = ""
 g_excel_writer = None
 g_io_profile_chart_offset = 5
 g_os_load_chart_offset = 5
@@ -180,10 +183,19 @@ def init_chart_worksheets():
 
 def read_df_from_csv_with_col_list(fn_csv, column_name_list):
     df = pd.read_csv(fn_csv, header=None, names=column_name_list)
+    df['date_time'] = pd.to_datetime(df['date_time']).dt.strftime('%Y-%m-%d %H')
+    if len(df) > 0:
+        val_dict = df.to_dict(orient='records')[int(len(df)/2)]
+        val_dict.pop(column_name_list[0], None)
+        val_dict.pop(column_name_list[1], None)
+        new_col_list = sorted(val_dict, key=val_dict.get, reverse=True)
+        new_col_list.insert(0, column_name_list[0])
+        new_col_list.insert(1, column_name_list[1])
+        df = df.reindex_axis(new_col_list, axis=1)
     return df
 
 def read_df_from_csv_with_col_dict(fn_csv, column_name_dict):
-    return read_df_from_csv_with_col_list(fn_csv, column_name_dict.keys())
+    return read_df_from_csv_with_col_list(fn_csv, list(column_name_dict.keys()))
 
 def write_df_to_csv(fn_csv, df):
     with open(fn_csv, 'w') as f:
@@ -275,6 +287,8 @@ def draw_generic_combined_chart(df, chart_sheet_name, data_sheet_name, chart_tit
 
 
 def draw_generic_line_chart(df, chart_sheet_name, data_sheet_name, chart_title, chart_y_axis='IOPS', x_scale=2.5, y_scale=2.5):
+    chart_title += ' (' + g_storage_name.upper() + ')'
+    
     """ Write into a new data sheet """
     df.to_excel(g_excel_writer, sheet_name=data_sheet_name)
     workbook = g_excel_writer.book
@@ -337,7 +351,7 @@ def plot_nfs3_ops_op(fn):
         call_shell(script, g_one_storage_data_dir_name, fn)
 
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'NFSv3_BREAKDOWN_BY_OPS',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'NFSv3_BREAKDOWN_BY_OPS',
                                 'Hourly NFSv3 IOPS Breakdown by Operation')
 
 def plot_nfs3_ops_size(fn):
@@ -350,7 +364,7 @@ def plot_nfs3_ops_size(fn):
     if not os.path.isfile(fn_csv):
         call_shell(script, g_one_storage_data_dir_name, fn)
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'NFSv3_IOPS_BREAKDOWN_BS',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'NFSv3_IOPS_BREAKDOWN_BS',
                                 'Hourly NFSv3 IOPS Breakdown by Block Size', 'NFSv3 IOPS')
 
 def plot_nfs3_ops_latency(fn):
@@ -363,7 +377,7 @@ def plot_nfs3_ops_latency(fn):
     if not os.path.isfile(fn_csv):
         call_shell(script, g_one_storage_data_dir_name, fn)
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'NFSv3_BREAKDOWN_LATENCY',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'NFSv3_BREAKDOWN_LATENCY',
                             'Hourly NFSv3 OPS Breakdown by Latency', 'IOPS')
 
 def plot_nfs4_ops(fn):
@@ -385,7 +399,7 @@ def plot_nfs4_ops_op(fn):
         call_shell(script, g_one_storage_data_dir_name, fn)
 
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'NFSv4_BREAKDOWN_BY_OPS',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'NFSv4_BREAKDOWN_BY_OPS',
                                 'Hourly NFSv4 IOPS Breakdown by Operation')
     
 def plot_nfs4_ops_size(fn):
@@ -398,7 +412,7 @@ def plot_nfs4_ops_size(fn):
     if not os.path.isfile(fn_csv):
         call_shell(script, g_one_storage_data_dir_name, fn)
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'NFSv4_IOPS_BREAKDOWN_BS',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'NFSv4_IOPS_BREAKDOWN_BS',
                                 'Hourly NFSv4 IOPS Breakdown by Block Size', 'NFSv4 IOPS')
 
 def plot_nfs4_ops_latency(fn):
@@ -411,7 +425,7 @@ def plot_nfs4_ops_latency(fn):
     if not os.path.isfile(fn_csv):
         call_shell(script, g_one_storage_data_dir_name, fn)
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'NFSv4_BREAKDOWN_LATENCY',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'NFSv4_BREAKDOWN_LATENCY',
                             'Hourly NFSv4 OPS Breakdown by Latency', 'IOPS')
 
 def plot_io_ops_op(fn):
@@ -422,7 +436,7 @@ def plot_io_ops_op(fn):
         call_shell(script, g_one_storage_data_dir_name, fn)
 
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'DISK_IOPS_BREAKDOWN_RW',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'DISK_IOPS_BREAKDOWN_RW',
                                 'Hourly Disk IOPS Breakdown by Read/Write', 'DISK IOPS')
     
 def plot_io_bytes(fn):
@@ -433,7 +447,7 @@ def plot_io_bytes(fn):
         call_shell(script, g_one_storage_data_dir_name, fn)
 
     df = read_df_from_csv_with_col_dict(fn_csv, column_name_dict)
-    draw_generic_combined_chart(df, SN_IO_PROFILE, 'DISK_KB_PER_SEC_BREAKDOWN_RW',
+    draw_generic_line_chart(df, SN_IO_PROFILE, 'DISK_KB_PER_SEC_BREAKDOWN_RW',
                                 'Hourly Disk KB/SEC Breakdown by Read/Write', 'DISK KB/SEC')
 
 def plot_nic_kilobytes(fn):
@@ -476,10 +490,10 @@ def plot_excel_all_charts():
         'nfs3.ops_op.txt',
         'nfs3.ops_size.txt',
         'nfs3.ops_latency.txt',
-        'nfs4.ops.txt',
-        'nfs4.ops_op.txt',
-        'nfs4.ops_size.txt',
-        'nfs4.ops_latency.txt',
+#         'nfs4.ops.txt',
+#         'nfs4.ops_op.txt',
+#         'nfs4.ops_size.txt',
+#         'nfs4.ops_latency.txt',
         'io.ops_op.txt',
         'io.bytes.txt',
         'nic.kilobytes.txt',
@@ -491,10 +505,10 @@ def plot_excel_all_charts():
         plot_nfs3_ops_op,
         plot_nfs3_ops_size,
         plot_nfs3_ops_latency,
-        plot_nfs4_ops,
-        plot_nfs4_ops_op,
-        plot_nfs4_ops_size,
-        plot_nfs4_ops_latency,
+#         plot_nfs4_ops,
+#         plot_nfs4_ops_op,
+#         plot_nfs4_ops_size,
+#         plot_nfs4_ops_latency,
         plot_io_ops_op,
         plot_io_bytes,
         plot_nic_kilobytes,
@@ -515,12 +529,14 @@ def plot_excel_all_charts():
 
 if __name__ == "__main__":
     options, args = parse_opts(sys.argv[1:])
-
+ 
     g_one_storage_data_dir_name = options.opcDataDir
-    g_excel_file_name = os.path.basename(
-        g_one_storage_data_dir_name).split('_')[0] + ".xlsx"
+    g_storage_name = os.path.basename(g_one_storage_data_dir_name).split('_')[0].split('.')[0]
+    g_excel_file_name = g_storage_name + ".xlsx"
+
     """ Create a Pandas Excel g_excel_writer using XlsxWriter as the engine """
     g_excel_writer = pd.ExcelWriter(g_excel_file_name, engine='xlsxwriter')
     init_chart_worksheets()
     plot_excel_all_charts()
     g_excel_writer.book.close()
+

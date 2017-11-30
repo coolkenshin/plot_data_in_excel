@@ -27,13 +27,13 @@ function get_dict_index(x) {
 		return 3
 	} else if (x<1000) {
 		return 4
-	} else if (x<100000) {
+	} else if (x<10000) {
 		return 5
-	} else if (x<1000000) {
+	} else if (x<100000) {
 		return 6
-	} else if (x<10000000) {
+	} else if (x<1000000) {
 		return 7
-	} else if (x<100000000) {
+	} else if (x<10000000) {
 		return 8
 	} else {
 		return 9
@@ -69,7 +69,6 @@ NF == 5 {
             int(ops[9]/count+0.5)
 
         ops["total_ops_num"] = $3
-        
         ops[2] = 0
         ops[3] = 0
         ops[4] = 0
@@ -89,8 +88,8 @@ NF == 5 {
         ops["date_time"] = cur_hour
         ops["total_ops_num"] += $3
         idx = get_dict_index(int($5))
-        ops[idx] = $4
-        count += 1  
+        ops[idx] += $4
+        count += 1
     }
 
 }
